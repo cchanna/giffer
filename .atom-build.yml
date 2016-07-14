@@ -1,0 +1,4 @@
+cmd: C:/projects/giffer/code/build.bat
+cwd: C:/projects/giffer/code
+errorMatch:
+  - '(?<file>[a-zA-Z]:[a-zA-Z\\\.\-_]+)\((?<line>\d+)\)\s?:\serror\sC\d+:\s(?<message>.*)'
