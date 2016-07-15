@@ -82,11 +82,15 @@ WriteCode(GIF_WRITER *writer, int32_t code, uint8_t current_code_size)
 
 int GetSubcube(GIFFER_COLOR_CUBE_HEAD *c, int cube, int level, GIFFER_COLOR color)
 {
-    GIFFER_COLOR_CUBE *cubes = c->cubes;
-    int r = (color.r >> level) & 1;
-    int g = (color.g >> level) & 1;
-    int b = (color.b >> level) & 1;
-    int subcube = cubes[cube].subcube[r][g][b];
+    GIFFER_COLOR_CUBE* cubes;
+    int r,g,b;
+    int subcube;
+
+    cubes = c->cubes;
+    r = (color.r >> level) & 1;
+    g = (color.g >> level) & 1;
+    b = (color.b >> level) & 1;
+    subcube = cubes[cube].subcube[r][g][b];
     if (subcube == 0)
     {
         cubes[cube].subcubes++;
@@ -110,6 +114,8 @@ int GetSubcube(GIFFER_COLOR_CUBE_HEAD *c, int cube, int level, GIFFER_COLOR colo
 
 void CubeInsert(GIFFER_COLOR_CUBE_HEAD *c, int cube, int level, GIFFER_COLOR color, uint64_t amount)
 {
+    GIFFER_COLOR_CUBE* cubes;
+
     if (cube == -1)
     {
         cube = 0;
@@ -118,7 +124,7 @@ void CubeInsert(GIFFER_COLOR_CUBE_HEAD *c, int cube, int level, GIFFER_COLOR col
     {
         cube = GetSubcube(c,cube,level,color);
     }
-    GIFFER_COLOR_CUBE *cubes = c->cubes;
+    cubes = c->cubes;
     if (cubes[cube].amount == 0)
     {
         cubes[cube].color = color;
@@ -225,10 +231,12 @@ void HeapSwap(int* heap, int node_1, int node_2)
 
 void HeapPush(int* heap, int cube, GIFFER_COLOR_CUBE* cubes)
 {
+    int current_node, parent_node;
+
     heap[0]++;
-    int current_node = heap[0];
+    current_node = heap[0];
     heap[current_node] = cube;
-    int parent_node = current_node/2;
+    parent_node = current_node/2;
     while (current_node > 1 && cubes[heap[parent_node]].amount < cubes[heap[current_node]].amount)
     {
         HeapSwap(heap, current_node, parent_node);
@@ -239,8 +247,10 @@ void HeapPush(int* heap, int cube, GIFFER_COLOR_CUBE* cubes)
 
 int HeapPop(int* heap, GIFFER_COLOR_CUBE* cubes)
 {
-    int current_node = 1;
-    int return_value = heap[current_node];
+    int current_node, return_value;
+
+    current_node = 1;
+    return_value = heap[current_node];
     heap[current_node] = heap[heap[0]];
     heap[heap[0]] = 0;
     heap[0]--;
@@ -279,40 +289,33 @@ uint8_t GetNextValue(GIFFER_IMAGE *image)
 GIFFER_MEMORY* Giffer_Init(uint16_t width, uint16_t height, uint8_t color_table_size, uint16_t delay)
 {
     GIFFER_MEMORY* memory = {};
+    uint64_t color_heap_size, color_table_memory_size, color_cube_size, video_size;
     memory = (GIFFER_MEMORY*) malloc(sizeof(GIFFER_MEMORY));
+
     memory->width = width;
     memory->height = height;
     memory->delay = delay;
-
-    memory->image.frame_width = width;
-    memory->image.frame_height = height;
-    memory->image.current_pixel = 0;
     memory->color_table_size_compressed = color_table_size;
     memory->color_table_size = 2 << memory->color_table_size_compressed;
+    memory->frames = 0;
+    memory->max_frames = 60;
+    memory->color_cube = {};
+    memory->color_cube.max_size = 2048;
 
-    uint64_t pixels_in_frame = width * height;
-    memory->image.values = (uint8_t*) malloc(pixels_in_frame);
-    memset(memory->image.values, 0, pixels_in_frame);
-    memory->image.previous_values = (uint8_t*) malloc(pixels_in_frame);
-    memset(memory->image.previous_values, 0, pixels_in_frame);
 
-    int color_heap_size = sizeof(int) * (memory->color_table_size + 1);
+    color_heap_size = sizeof(int) * (memory->color_table_size + 1);
     memory->color_heap = (int*) malloc(color_heap_size);
     memset(memory->color_heap, 0, color_heap_size);
 
-    int color_table_memory_size = sizeof(GIFFER_COLOR) * (memory->color_table_size);
+    color_table_memory_size = sizeof(GIFFER_COLOR) * (memory->color_table_size);
     memory->color_table = (GIFFER_COLOR*) malloc(color_table_memory_size);
     memset(memory->color_table, 0, color_table_memory_size);
 
-    memory->color_cube = {};
-    memory->color_cube.max_size = 2048;
-    uint64_t color_cube_size = sizeof(GIFFER_COLOR_CUBE) * memory->color_cube.max_size;
+    color_cube_size = sizeof(GIFFER_COLOR_CUBE) * memory->color_cube.max_size;
     memory->color_cube.cubes = (GIFFER_COLOR_CUBE*) malloc(color_cube_size);
     memset(memory->color_cube.cubes, 0, color_cube_size);
 
-    memory->frames = 0;
-    memory->max_frames = 60;
-    uint64_t video_size = sizeof(uint8_t) * memory->width * memory->height * memory->max_frames * 4;
+    video_size = sizeof(uint8_t) * memory->width * memory->height * memory->max_frames * 4;
     memory->video = (uint8_t*) malloc(video_size);
     memset(memory->video, 0, video_size);
 
@@ -325,30 +328,38 @@ GIFFER_MEMORY* Giffer_Init(uint16_t width, uint16_t height, uint8_t color_table_
 
 void Giffer_Frame(GIFFER_MEMORY* memory, uint8_t* frame)
 {
+    uint8_t* pixel;
+    uint8_t* new_frame_position;
+    int current_pixel;
+
     memory->frames++;
     if (memory->frames >= memory->max_frames)
     {
-        uint64_t old_video_size = sizeof(uint8_t) * 4 * memory->width * memory->height * memory->max_frames;
+        uint64_t old_video_size, new_video_size;
+        uint8_t* video_tmp;
+
+        old_video_size = sizeof(uint8_t) * 4 * memory->width * memory->height * memory->max_frames;
         memory->max_frames *= 2;
-        uint64_t new_video_size = sizeof(uint8_t) * 4 * memory->width * memory->height * memory->max_frames;
-        uint8_t* video_tmp = (uint8_t*) malloc(new_video_size);
+        new_video_size = sizeof(uint8_t) * 4 * memory->width * memory->height * memory->max_frames;
+        video_tmp = (uint8_t*) malloc(new_video_size);
         memset(video_tmp, 0, new_video_size);
         memcpy(video_tmp, memory->video, old_video_size);
         free(memory->video);
         memory->video = video_tmp;
     }
-    uint8_t* pixel = frame;
-    int current_pixel = 0;
+    pixel = frame;
+    current_pixel = 0;
     for (int i=0; i < memory->width * memory->height; i++)
     {
         GIFFER_COLOR color;
+
         color.r = *pixel++;
         color.g = *pixel++;
         color.b = *pixel++;
         *pixel++;
         CubeInsert(&(memory->color_cube), color);
     }
-    uint8_t* new_frame_position = memory->video + (4 * memory->width * memory->height * (memory->frames - 1));
+    new_frame_position = memory->video + (4 * memory->width * memory->height * (memory->frames - 1));
     memcpy(new_frame_position, frame, memory->width * memory->height * 4);
 }
 
@@ -392,6 +403,20 @@ void Giffer_End(GIFFER_MEMORY* memory)
         }
     }
 
+
+    GIFFER_IMAGE image;
+    image.frame_width = memory->width;
+    image.frame_height = memory->height;
+    image.current_pixel = 0;
+
+    uint64_t pixels_in_frame = memory->width * memory->height;
+    image.values = (uint8_t*) malloc(pixels_in_frame);
+    memset(image.values, 0, pixels_in_frame);
+    image.previous_values = (uint8_t*) malloc(pixels_in_frame);
+    memset(image.previous_values, 0, pixels_in_frame);
+
+    uint8_t* pixel;
+
     GIF_WRITER w = {};
     w.file = 0;
     fopen_s(&(w.file), "giffer.gif", "wb");
@@ -428,13 +453,13 @@ void Giffer_End(GIFFER_MEMORY* memory)
 	Write16(&w,0); // NOTE(cch): repeat forever
 	Write8(&w,0x00); // NOTE(cch): block terminator
 
-	uint8_t *pixel = memory->video;
+	pixel = memory->video;
 	for (int current_frame = 0; current_frame < memory->frames; current_frame++)
 	{
-        memory->image.left = memory->width - 1;
-		memory->image.right = 0;
-		memory->image.top = memory->height - 1;
-		memory->image.bottom = 0;
+        image.left = memory->width - 1;
+		image.right = 0;
+		image.top = memory->height - 1;
+		image.bottom = 0;
         int is_different = 0;
 		{
 			for (int i = 0; i < memory->width * memory->height; i++)
@@ -445,44 +470,44 @@ void Giffer_End(GIFFER_MEMORY* memory)
 				color.b = *pixel++;
 				*pixel++;
 				uint8_t index = CubeSearch(&(memory->color_cube),color);
-				memory->image.values[i] = index;
+				image.values[i] = index;
 				if (current_frame > 0)
 				{
-					if (memory->image.values[i] != memory->image.previous_values[i])
+					if (image.values[i] != image.previous_values[i])
 					{
                         is_different = true;
 						uint16_t x = i % memory->width;
-						if (x < memory->image.left)
+						if (x < image.left)
 						{
-							memory->image.left = x;
+							image.left = x;
 						}
-						if (x > memory->image.right)
+						if (x > image.right)
 						{
-							memory->image.right = x;
+							image.right = x;
 						}
 						uint16_t y = (uint16_t) (i / memory->width);
-						if (y < memory->image.top)
+						if (y < image.top)
 						{
-							memory->image.top = y;
+							image.top = y;
 						}
-						if (y > memory->image.bottom)
+						if (y > image.bottom)
 						{
-							memory->image.bottom = y;
+							image.bottom = y;
 						}
 					}
 				}
 			}
 			if (is_different)
 			{
-				memory->image.width = memory->image.right - memory->image.left + 1;
-				memory->image.height = memory->image.bottom - memory->image.top + 1;
+				image.width = image.right - image.left + 1;
+				image.height = image.bottom - image.top + 1;
 			}
 			else
 			{
-				memory->image.left = 0;
-				memory->image.top = 0;
-				memory->image.width = memory->width;
-				memory->image.height = memory->height;
+				image.left = 0;
+				image.top = 0;
+				image.width = memory->width;
+				image.height = memory->height;
 			}
 		}
 		// NOTE(cch): graphics control extension
@@ -502,10 +527,10 @@ void Giffer_End(GIFFER_MEMORY* memory)
 
 		// NOTE(cch): image descriptor
 		Write8(&w,0x2C);
-		Write16(&w,memory->image.left);   // NOTE(cch): image left
-		Write16(&w,memory->image.top);   // NOTE(cch): image top
-		Write16(&w,memory->image.width);  // NOTE(cch): image width
-		Write16(&w,memory->image.height);  // NOTE(cch): image height
+		Write16(&w,image.left);   // NOTE(cch): image left
+		Write16(&w,image.top);   // NOTE(cch): image top
+		Write16(&w,image.width);  // NOTE(cch): image width
+		Write16(&w,image.height);  // NOTE(cch): image height
 		Write8(&w,0x00); // NOTE(cch): no local color table
 
 		// NOTE(cch): image data
@@ -519,10 +544,10 @@ void Giffer_End(GIFFER_MEMORY* memory)
 		uint8_t current_code_size = lzw_minimum_code_size + 1;
 		WriteCode(&w, clear_code, current_code_size);
 
-		int32_t current_code = GetNextValue(&(memory->image));
-		for (int i = 1; i < memory->image.width * memory->image.height; i++)
+		int32_t current_code = GetNextValue(&(image));
+		for (int i = 1; i < image.width * image.height; i++)
 		{
-			uint16_t next_index = GetNextValue(&(memory->image));
+			uint16_t next_index = GetNextValue(&(image));
 
 			// NOTE(cch): search for matching code run in code tree
 			if (memory->code_tree[current_code].next[next_index])
@@ -564,8 +589,20 @@ void Giffer_End(GIFFER_MEMORY* memory)
 			WriteBlock(&w);
 		}
 		Write8(&w,0x00); //NOTE(cch): block terminator
-		uint8_t *values_tmp = memory->image.previous_values;
-		memory->image.previous_values = memory->image.values;
-		memory->image.values = values_tmp;
+		uint8_t *values_tmp = image.previous_values;
+		image.previous_values = image.values;
+		image.values = values_tmp;
     }
+    // NOTE(cch): trailer
+    Write8(&w,0x3B);
+    fclose(w.file);
+
+    free(image.values);
+    free(image.previous_values);
+    free(memory->color_cube.cubes);
+    free(memory->video);
+    free(memory->color_heap);
+    free(memory->color_table);
+    free(memory->code_tree);
+    free(memory);
 }

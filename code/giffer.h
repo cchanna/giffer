@@ -35,7 +35,6 @@ struct GIFFER_LZW_NODE
 
 struct GIFFER_MEMORY
 {
-    GIFFER_IMAGE image;
     uint64_t frames;
     uint64_t max_frames;
     uint8_t* video;
